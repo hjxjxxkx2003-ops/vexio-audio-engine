@@ -1,5 +1,4 @@
 Flask==2.3.2
-yt-dlp
 groq
 pydub==0.25.1
 requests==2.31.0

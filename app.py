@@ -2,54 +2,28 @@ import os
 import tempfile
 import threading
 import requests
-import re
 from flask import Flask, request, jsonify
 from groq import Groq
 from pydub import AudioSegment
+from pytubefix import YouTube
 
 app = Flask(__name__)
 
 def log_it(message):
     print(f"[VEXIO LOG] {message}", flush=True)
 
-def extract_video_id(url):
-    match = re.search(r"(?:v=|\/|youtu\.be\/)([0-9A-Za-z_-]{11})", url)
-    return match.group(1) if match else None
-
-def download_audio_from_piped(video_url, save_path):
-    video_id = extract_video_id(video_url)
-    if not video_id:
-        return False
-
-    # قائمة سيرفرات الطوارئ (إذا تعطل واحد، ينتقل للثاني تلقائياً)
-    instances = [
-        "https://pipedapi.tokhmi.xyz",
-        "https://pipedapi.adminforge.de",
-        "https://pipedapi.qdi.fi",
-        "https://pipedapi.kavin.rocks"
-    ]
-
-    for instance in instances:
-        try:
-            log_it(f"Trying server: {instance}...")
-            api_url = f"{instance}/streams/{video_id}"
-            response = requests.get(api_url, timeout=15)
-            
-            if response.status_code == 200:
-                data = response.json()
-                audio_streams = data.get("audioStreams", [])
-                if audio_streams:
-                    stream_url = audio_streams[0].get("url")
-                    log_it("Audio found! Downloading...")
-                    audio_res = requests.get(stream_url)
-                    with open(save_path, 'wb') as f:
-                        f.write(audio_res.content)
-                    log_it("Download successful!")
-                    return True
-        except:
-            log_it(f"Server {instance} failed. Switching to next...")
-            continue
-            
+def download_audio_pytubefix(video_url, save_path):
+    try:
+        log_it(f"Downloading audio using pytubefix for: {video_url}")
+        # استخدام إضافة pytubefix التي تتجاوز حماية يوتيوب تلقائياً
+        yt = YouTube(video_url, use_po_token=True)
+        audio_stream = yt.streams.get_audio_only()
+        if audio_stream:
+            audio_stream.download(filename=save_path)
+            log_it("Download successful via pytubefix!")
+            return True
+    except Exception as e:
+        log_it(f"Download Error: {str(e)}")
     return False
 
 def process_video_background(video_url, webhook_url, groq_key):
@@ -57,20 +31,24 @@ def process_video_background(video_url, webhook_url, groq_key):
     client = Groq(api_key=groq_key)
     try:
         with tempfile.TemporaryDirectory() as temp_dir:
-            audio_path = os.path.join(temp_dir, "audio_file")
+            audio_path = os.path.join(temp_dir, "audio.mp3")
 
-            success = download_audio_from_piped(video_url, audio_path)
+            # سحب الصوت بالأداة الجديدة
+            success = download_audio_pytubefix(video_url, audio_path)
             
             if not success:
-                requests.post(webhook_url, json={"status": "error", "error_message": "فشلت كل السيرفرات في سحب الصوت."})
+                requests.post(webhook_url, json={"status": "error", "error_message": "فشل التحميل بسبب حماية يوتيوب القصوى."})
                 return
 
+            log_it("Starting audio chunking...")
             audio = AudioSegment.from_file(audio_path)
             chunk_length_ms = 10 * 60 * 1000
             chunks = [audio[i:i+chunk_length_ms] for i in range(0, len(audio), chunk_length_ms)]
+            log_it(f"Audio split into {len(chunks)} chunks.")
 
             full_text = ""
             for i, chunk in enumerate(chunks):
+                log_it(f"Processing chunk {i+1} out of {len(chunks)} using Groq...")
                 chunk_path = os.path.join(temp_dir, f"chunk_{i}.mp3")
                 chunk.export(chunk_path, format="mp3", bitrate="64k")
 
@@ -81,10 +59,12 @@ def process_video_background(video_url, webhook_url, groq_key):
                     )
                     full_text += transcription.text + " "
             
+            log_it("Transcription complete! Sending to Webhook...")
             requests.post(webhook_url, json={"status": "success", "text": full_text})
-            log_it("Process finished and sent to n8n.")
+            log_it("Process finished.")
 
     except Exception as e:
+        log_it(f"FATAL ERROR: {str(e)}")
         requests.post(webhook_url, json={"status": "error", "error_message": str(e)})
 
 @app.route('/process', methods=['POST'])

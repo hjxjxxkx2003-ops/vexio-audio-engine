@@ -15,10 +15,11 @@ def process_video_background(video_url, webhook_url, groq_key):
         with tempfile.TemporaryDirectory() as temp_dir:
             audio_path = os.path.join(temp_dir, "audio.mp3")
 
-            # 1. سحب الصوت بجودة مناسبة لتقليل الحجم
+            # 1. سحب الصوت والتخفي كأننا هاتف أندرويد
             ydl_opts = {
                 'format': 'worstaudio/worst',
                 'outtmpl': audio_path,
+                'extractor_args': {'youtube': ['client=android']},
                 'postprocessors': [{
                     'key': 'FFmpegExtractAudio',
                     'preferredcodec': 'mp3',
@@ -28,12 +29,12 @@ def process_video_background(video_url, webhook_url, groq_key):
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([video_url])
 
-            # 2. تقطيع الصوت بذكاء (كل 10 دقائق لتجنب رفض Groq)
+            # 2. تقطيع الصوت (كل 10 دقائق)
             audio = AudioSegment.from_mp3(audio_path)
             chunk_length_ms = 10 * 60 * 1000
             chunks = [audio[i:i+chunk_length_ms] for i in range(0, len(audio), chunk_length_ms)]
 
-            # 3. إرسال الأجزاء لـ Groq وتجميع النص
+            # 3. التفريغ عبر Groq
             full_text = ""
             for i, chunk in enumerate(chunks):
                 chunk_path = os.path.join(temp_dir, f"chunk_{i}.mp3")
@@ -46,11 +47,10 @@ def process_video_background(video_url, webhook_url, groq_key):
                     )
                     full_text += transcription.text + " "
 
-            # 4. إرسال النص النهائي بنجاح إلى n8n
+            # 4. الإرسال إلى n8n
             requests.post(webhook_url, json={"status": "success", "text": full_text})
 
     except Exception as e:
-        # في حال وجود خطأ، نخبر n8n بذلك
         requests.post(webhook_url, json={"status": "error", "error_message": str(e)})
 
 @app.route('/process', methods=['POST'])
@@ -63,7 +63,6 @@ def process_video():
     if not url or not webhook_url:
         return jsonify({"error": "Missing URL or Webhook"}), 400
 
-    # تشغيل المهمة الشاقة في الخلفية لكي لا ينقطع الاتصال
     thread = threading.Thread(target=process_video_background, args=(url, webhook_url, groq_key))
     thread.start()
 

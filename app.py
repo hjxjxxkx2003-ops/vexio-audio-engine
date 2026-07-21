@@ -15,11 +15,11 @@ def process_video_background(video_url, webhook_url, groq_key):
         with tempfile.TemporaryDirectory() as temp_dir:
             audio_path = os.path.join(temp_dir, "audio.mp3")
 
-            # التخفي كشاشة تلفاز ذكي مع استخدام Node.js المضاف حديثاً
+            # الجدار الناري ليوتيوب سيسقط هنا: استخدام بصمة ملف الكوكيز
             ydl_opts = {
-                'format': 'ba/w',
+                'format': 'worstaudio/worst',
                 'outtmpl': audio_path,
-                'extractor_args': {'youtube': ['client=tv,ios']},
+                'cookiefile': 'cookies.txt',  # البصمة السحرية
                 'postprocessors': [{
                     'key': 'FFmpegExtractAudio',
                     'preferredcodec': 'mp3',

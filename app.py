@@ -9,37 +9,43 @@ from pydub import AudioSegment
 app = Flask(__name__)
 
 def log_it(message):
-    # هذه الدالة ستجبر السيرفر على كتابة ما يحدث في السجل فوراً
     print(f"[VEXIO LOG] {message}", flush=True)
 
 def download_audio_from_api(video_url, save_path):
-    log_it(f"Trying to download audio using Cobalt API for: {video_url}")
+    log_it(f"Trying to download audio for: {video_url}")
+    
+    # التحديث الجديد: الباب الجديد لسيرفر Cobalt
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
     }
     payload = {
         "url": video_url,
-        "isAudioOnly": True,
-        "aFormat": "mp3"
+        "downloadMode": "audio",
+        "audioFormat": "mp3"
     }
+    
     try:
-        response = requests.post("https://api.cobalt.tools/api/json", json=payload, headers=headers)
-        log_it(f"Cobalt API Status Code: {response.status_code}")
+        log_it("Knocking on Cobalt's new API door...")
+        # تم تغيير الرابط هنا إلى النسخة الحديثة
+        response = requests.post("https://api.cobalt.tools/", json=payload, headers=headers)
+        log_it(f"API Response Code: {response.status_code}")
         
         if response.status_code == 200:
             audio_link = response.json().get("url")
             if audio_link:
-                log_it("Audio link generated successfully! Downloading MP3 file now...")
+                log_it("Success! Audio link found. Downloading...")
                 r = requests.get(audio_link)
                 with open(save_path, 'wb') as f:
                     f.write(r.content)
-                log_it("MP3 Downloaded successfully!")
+                log_it("Audio file saved successfully!")
                 return True
         else:
-            log_it(f"Cobalt API Error: {response.text}")
+            log_it(f"API Error details: {response.text}")
     except Exception as e:
-        log_it(f"Download Exception: {str(e)}")
+        log_it(f"Download Error: {str(e)}")
+        
     return False
 
 def process_video_background(video_url, webhook_url, groq_key):
